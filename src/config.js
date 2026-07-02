@@ -15,7 +15,7 @@
 // minutes on their end, so edits may take a moment to show up.
 // ---------------------------------------------------------------------------
 
-export const SHEET_ID = "PASTE_YOUR_GOOGLE_SHEET_ID_HERE";
+export const SHEET_ID = "11Q6QG9ifImG_OGH1ySeBTj3P4E6ThNqFUcValCLORes";
 
 export const OPENSHEET_BASE = "https://opensheet.elk.sh";
 
