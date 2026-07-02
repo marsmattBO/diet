@@ -1,34 +1,21 @@
 import { SHEET_ID, OPENSHEET_BASE, SHEET_TABS } from "../config.js";
 
 // ---------------------------------------------------------------------------
-// Ingredient cell format (single column, semicolon-separated entries):
+// Sheet format (long / tidy — one row per ingredient):
 //
-//   chicken breast:200:g; broccoli:150:g; soy sauce:1:tbsp
+//   dish_name          | ingredient    | quantity | unit | tags
+//   --------------------------------------------------------------
+//   Greek Yogurt Bowl   | greek yogurt  | 200      | g    | vegetarian
+//   Greek Yogurt Bowl   | oats          | 40       | g    | vegetarian
+//   Greek Yogurt Bowl   | honey         | 1        | tbsp | vegetarian
 //
-// Each entry is  name:quantity:unit  — unit is free text (g, ml, tbsp, pcs...).
-// Quantity is optional (defaults to 1) and unit is optional (defaults to "").
-// Whitespace around each field is trimmed automatically.
-//
-// Tags cell format (single column, comma-separated):
-//
-//   vegetarian, gluten-free
+// - Repeat dish_name on every row belonging to that dish.
+// - tags can be repeated on every row or only the first row for that dish —
+//   both work, they get merged/deduped per dish either way.
+// - tags cell itself is comma-separated for multiple tags:
+//   "vegetarian, gluten-free"
+// - quantity is optional (defaults to 1), unit is optional (defaults to "").
 // ---------------------------------------------------------------------------
-
-export function parseIngredients(cell) {
-  if (!cell || typeof cell !== "string") return [];
-  return cell
-    .split(";")
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      const [name, qty, unit] = chunk.split(":").map((p) => (p ?? "").trim());
-      return {
-        name: (name || "").toLowerCase(),
-        quantity: qty ? Number(qty) || qty : 1,
-        unit: unit || "",
-      };
-    });
-}
 
 function parseTags(cell) {
   if (!cell || typeof cell !== "string") return [];
@@ -38,14 +25,34 @@ function parseTags(cell) {
     .filter(Boolean);
 }
 
-function parseRows(rows) {
-  return rows
-    .filter((r) => r.name && r.name.trim())
-    .map((r) => ({
-      name: r.name.trim(),
-      ingredients: parseIngredients(r.ingredients),
-      tags: parseTags(r.tags),
-    }));
+// Groups long-format rows (one per ingredient) into dish objects:
+// { name, ingredients: [{ name, quantity, unit }], tags: [...] }
+function groupRowsIntoDishes(rows) {
+  const dishMap = new Map(); // dish_name -> dish object, preserves first-seen order
+
+  rows.forEach((r) => {
+    const dishName = (r.dish_name || "").trim();
+    const ingredientName = (r.ingredient || "").trim().toLowerCase();
+    if (!dishName || !ingredientName) return; // skip blank/incomplete rows
+
+    if (!dishMap.has(dishName)) {
+      dishMap.set(dishName, { name: dishName, ingredients: [], tags: new Set() });
+    }
+    const dish = dishMap.get(dishName);
+
+    const rawQty = (r.quantity ?? "").toString().trim();
+    const quantity = rawQty === "" ? 1 : Number(rawQty) || rawQty;
+    const unit = (r.unit || "").trim();
+
+    dish.ingredients.push({ name: ingredientName, quantity, unit });
+    parseTags(r.tags).forEach((t) => dish.tags.add(t));
+  });
+
+  return Array.from(dishMap.values()).map((d) => ({
+    name: d.name,
+    ingredients: d.ingredients,
+    tags: Array.from(d.tags),
+  }));
 }
 
 async function fetchTab(tabName) {
@@ -55,7 +62,7 @@ async function fetchTab(tabName) {
     throw new Error(`Failed to load "${tabName}" (${res.status}). Check SHEET_ID and that the tab exists.`);
   }
   const json = await res.json();
-  return parseRows(json);
+  return groupRowsIntoDishes(json);
 }
 
 // Fetches every worksheet in parallel and returns a normalized dataset:
